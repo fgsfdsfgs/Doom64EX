@@ -49,6 +49,7 @@ DATA		:=	data
 INCLUDES	:=	
 DEFINES		+=	-DFLUIDSYNTH_NOT_A_DLL
 EXEFS_SRC	:=	exefs_src
+ICON		:=	distrib/doom64ex.jpg
 #ROMFS	:=	romfs
 
 #---------------------------------------------------------------------------------
