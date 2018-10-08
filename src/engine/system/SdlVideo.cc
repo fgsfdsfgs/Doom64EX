@@ -8,6 +8,10 @@
 #include <common/doomstat.h>
 #include <renderer/r_main.h>
 
+#ifdef __SWITCH__
+extern "C" int SDL_SendMouseMotion(SDL_Window *window, Uint32 mouseID, int relative, int x, int y);
+#endif
+
 namespace {
   // Exclusive fullscreen by default on Windows only.
 #ifdef _WIN32
@@ -181,6 +185,14 @@ class SdlVideo : public IVideo {
     bool has_mouse_ { false };
     Vector<VideoMode> modes_ {};
     int lastmbtn_ {};
+#ifdef __SWITCH__
+    int joy_axis_[16] = { 0 };
+    int joy_axis_prev_[16] = { 0 };
+    int joy_mouse_[2] = { 0 };
+    int joy_mouse_prev_[2] = { 0 };
+    int joy_move_[2] = { 0 };
+    int joy_move_prev_[2] = { 0 };
+#endif
 
     void init_gl_() {
         switch (opengl_) {
@@ -260,6 +272,86 @@ class SdlVideo : public IVideo {
         return static_cast<int>(pow(static_cast<float>(val), factor));
     }
 
+#ifdef __SWITCH__
+
+    SDL_Keycode joy_to_key_(int button) {
+        static const SDL_Keycode keymap[] = {
+            /* KEY_A      */ KEY_ENTER,
+            /* KEY_B      */ KEY_BACKSPACE,
+            /* KEY_X      */ KEY_DEL,
+            /* KEY_Y      */ KEY_ALT,
+            /* KEY_LSTICK */ 0,
+            /* KEY_RSTICK */ 0,
+            /* KEY_L      */ KEY_SHIFT,
+            /* KEY_R      */ KEY_INSERT,
+            /* KEY_ZL     */ KEY_SPACEBAR,
+            /* KEY_ZR     */ KEY_CTRL,
+            /* KEY_PLUS   */ KEY_ESCAPE,
+            /* KEY_MINUS  */ KEY_TAB,
+            /* KEY_DLEFT  */ KEY_LEFTARROW,
+            /* KEY_DUP    */ KEY_UPARROW,
+            /* KEY_DRIGHT */ KEY_RIGHTARROW,
+            /* KEY_DDOWN  */ KEY_DOWNARROW,
+        };
+
+        if (button < 0 || button > 15) return 0;
+        return keymap[button];
+    }
+
+    bool joy_generate_motion_events_(int axis, int val, int old) {
+        constexpr int move_threshold = 64;
+        static const struct {
+            SDL_Keycode sym;
+            SDL_Scancode scan;
+        } axis_map[][2] = {
+            { { SDLK_a, SDL_SCANCODE_A }, { SDLK_d, SDL_SCANCODE_D }, },
+            { { SDLK_w, SDL_SCANCODE_W }, { SDLK_s, SDL_SCANCODE_S }, },
+        };
+
+        bool key[2] = { val < -move_threshold, val > move_threshold };
+        bool key_prev[2] = { old < -move_threshold, old > move_threshold };
+
+        bool ret = false;
+        event_t doom;
+
+        for (int i = 0; i < 2; ++i) {
+            if (key[i] != key_prev[i]) {
+                doom.type = key[i] ? ev_keydown : ev_keyup;
+                doom.data1 = translate_sdlk_(axis_map[axis][i].sym);
+                doom.data2 = translate_scancode_(axis_map[axis][i].scan);
+                D_PostEvent(&doom);
+                ret = true;
+            }
+        }
+
+        return ret;
+    }
+
+    void joy_move_mouse_(void) {
+        SDL_SendMouseMotion(sdl_window_, 0, 1, joy_mouse_[0], joy_mouse_[1]);
+    }
+
+    void joy_axis_motion_(Uint8 axis, Sint16 val) {
+        constexpr float mouse_modifier = 1.f / 2048.f;
+        constexpr int move_modifier = 256;
+        constexpr int deadzone = 32;
+
+        if (abs(val) < deadzone) val = 0;
+
+        if (axis == 2 || axis == 3) {
+            joy_mouse_prev_[axis - 2] = joy_mouse_[axis - 2];
+            joy_mouse_[axis - 2] = val * mouse_modifier;
+        } else if (axis == 0 || axis == 1) {
+            joy_move_prev_[axis] = joy_move_[axis];
+            joy_move_[axis] = val / move_modifier;
+        }
+
+        joy_axis_prev_[axis] = joy_axis_[axis];
+        joy_axis_[axis] = val;
+    }
+
+#endif
+
 public:
     SdlVideo(OpenGLVer opengl):
         opengl_(opengl)
@@ -267,7 +359,10 @@ public:
         SDL_Init(SDL_INIT_EVERYTHING);
         SDL_ShowCursor(SDL_FALSE);
         init_modes_();
-        
+
+        SDL_JoystickOpen(0);
+        SDL_JoystickOpen(1);
+
         SDL_DisplayMode desktop_mode;
         SDL_GetDesktopDisplayMode(0, &desktop_mode);
 
@@ -446,6 +541,9 @@ public:
     {
         event_t doom {};
         SDL_Event e;
+#ifdef __SWITCH__
+        int key = 0;
+#endif
 
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
@@ -499,6 +597,20 @@ public:
                 D_PostEvent(&doom);
                 break;
 
+            case SDL_JOYBUTTONUP:
+            case SDL_JOYBUTTONDOWN:
+                key = joy_to_key_(e.jbutton.button);
+                if (!key) break;
+                doom.type = (e.type == SDL_JOYBUTTONDOWN) ? ev_keydown : ev_keyup;
+                doom.data1 = key;
+                doom.data2 = key;
+                D_PostEvent(&doom);
+                break;
+
+            case SDL_JOYAXISMOTION:
+                joy_axis_motion_(e.jaxis.axis, e.jaxis.value);
+                break;
+
             case SDL_WINDOWEVENT:
                 switch (e.window.event) {
                 case SDL_WINDOWEVENT_FOCUS_GAINED:
@@ -530,6 +642,14 @@ public:
                 break;
             }
         }
+
+#ifdef __SWITCH__
+        joy_move_mouse_();
+        if (joy_generate_motion_events_(0, joy_move_[0], joy_move_prev_[0]))
+            joy_move_prev_[0] = joy_move_[0];
+        if (joy_generate_motion_events_(1, joy_move_[1], joy_move_prev_[1]))
+            joy_move_prev_[1] = joy_move_[1];
+#endif
 
         int x, y;
         SDL_GetRelativeMouseState(&x, &y);
