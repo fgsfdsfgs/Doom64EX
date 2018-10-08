@@ -1215,7 +1215,7 @@ void I_InitSequencer(void) {
     //
     doomseq.settings = new_fluid_settings();
     Seq_SetConfig(&doomseq, "synth.midi-channels", 0x10 + MIDI_CHANNELS);
-    Seq_SetConfig(&doomseq, "synth.polyphony", 256);
+    Seq_SetConfig(&doomseq, "synth.polyphony", 512);
 
     //
     // init synth
