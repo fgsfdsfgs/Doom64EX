@@ -256,6 +256,11 @@ int D_MiniLoop(void (*start)(void), void (*stop)(void),
         int availabletics = 0;
         int counts = 0;
 
+#ifdef __SWITCH__
+        if (!appletMainLoop())
+            exit(0); // FIXME: there's probably a better way to do this
+#endif
+
         windowpause = (menuactive ? true : false);
 
         // process one or more tics
@@ -729,9 +734,6 @@ void D_DoomLoop(void) {
     exit = gameaction;
 
     for (;;) {
-#ifdef __SWITCH__
-        appletMainLoop();
-#endif
         exit = D_MiniLoop(Title_Start, Title_Stop, Title_Drawer, Title_Ticker);
 
         if(exit == ga_newgame || exit == ga_loadgame) {
@@ -978,7 +980,11 @@ static int D_CheckDemo(void) {
 
 [[noreturn]]
 void D_DoomMain(void) {
-    devparm = true; //M_CheckParm("-devparm");
+#if defined(__SWITCH__) && defined(NXLINK_DEBUG)
+    devparm = true;
+#else
+    devparm = M_CheckParm("-devparm");
+#endif
 
     // init subsystems
 
