@@ -192,6 +192,8 @@ class SdlVideo : public IVideo {
     int joy_mouse_prev_[2] = { 0 };
     int joy_move_[2] = { 0 };
     int joy_move_prev_[2] = { 0 };
+    int joy_buttons_[32] = { 0 };
+    int joy_buttons_prev_[32] =  { 0 };
 #endif
 
     void init_gl_() {
@@ -332,7 +334,7 @@ class SdlVideo : public IVideo {
     }
 
     void joy_axis_motion_(Uint8 axis, Sint16 val) {
-        constexpr float mouse_modifier = 1.f / 2048.f;
+        constexpr float mouse_modifier = 1.f / 1024.f;
         constexpr int move_modifier = 256;
         constexpr int deadzone = 32;
 
@@ -350,6 +352,21 @@ class SdlVideo : public IVideo {
         joy_axis_[axis] = val;
     }
 
+    void joy_button_(int button, bool pressed) {
+        joy_buttons_prev_[button] = joy_buttons_[button];
+        joy_buttons_[button] = pressed;
+        if (joy_buttons_[button] == joy_buttons_prev_[button])
+            return;
+
+        event_t doom;
+        int key = joy_to_key_(button);
+        if (!key) return;
+        doom.type = pressed ? ev_keydown : ev_keyup;
+        doom.data1 = key;
+        doom.data2 = key;
+        D_PostEvent(&doom);
+    }
+
 #endif
 
 public:
@@ -360,8 +377,10 @@ public:
         SDL_ShowCursor(SDL_FALSE);
         init_modes_();
 
+#ifdef __SWITCH__
         SDL_JoystickOpen(0);
         SDL_JoystickOpen(1);
+#endif
 
         SDL_DisplayMode desktop_mode;
         SDL_GetDesktopDisplayMode(0, &desktop_mode);
@@ -541,9 +560,6 @@ public:
     {
         event_t doom {};
         SDL_Event e;
-#ifdef __SWITCH__
-        int key = 0;
-#endif
 
         while (SDL_PollEvent(&e)) {
             switch (e.type) {
@@ -597,19 +613,16 @@ public:
                 D_PostEvent(&doom);
                 break;
 
+#ifdef __SWITCH__
             case SDL_JOYBUTTONUP:
             case SDL_JOYBUTTONDOWN:
-                key = joy_to_key_(e.jbutton.button);
-                if (!key) break;
-                doom.type = (e.type == SDL_JOYBUTTONDOWN) ? ev_keydown : ev_keyup;
-                doom.data1 = key;
-                doom.data2 = key;
-                D_PostEvent(&doom);
+                joy_button_(e.jbutton.button, (e.type == SDL_JOYBUTTONDOWN));
                 break;
 
             case SDL_JOYAXISMOTION:
                 joy_axis_motion_(e.jaxis.axis, e.jaxis.value);
                 break;
+#endif
 
             case SDL_WINDOWEVENT:
                 switch (e.window.event) {
