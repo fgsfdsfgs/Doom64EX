@@ -35,6 +35,10 @@
 #include <io.h>
 #endif
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
 #include <stdlib.h>
 
 #include "doomdef.h"
@@ -725,6 +729,9 @@ void D_DoomLoop(void) {
     exit = gameaction;
 
     for (;;) {
+#ifdef __SWITCH__
+        appletMainLoop();
+#endif
         exit = D_MiniLoop(Title_Start, Title_Stop, Title_Drawer, Title_Ticker);
 
         if(exit == ga_newgame || exit == ga_loadgame) {
@@ -971,7 +978,7 @@ static int D_CheckDemo(void) {
 
 [[noreturn]]
 void D_DoomMain(void) {
-    devparm = M_CheckParm("-devparm");
+    devparm = true; //M_CheckParm("-devparm");
 
     // init subsystems
 

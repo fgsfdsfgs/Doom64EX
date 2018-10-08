@@ -6,6 +6,10 @@
 
 #include "SDL.h"
 
+#ifdef __SWITCH__
+#include <switch.h>
+#endif
+
 #ifdef main
 #undef main
 #else
@@ -79,6 +83,23 @@ namespace {
   };
 }
 
+#ifdef __SWITCH__
+
+// clean up exactly once, since calling socketExit multiple times can lead
+// to massive fuck ups
+
+static void nx_cleanup(void)
+{
+    static int called = 0;
+    if (called) return;
+    called = 1;
+
+    if (SDL_WasInit(0)) SDL_Quit();
+    socketExit();
+}
+
+#endif
+
 [[noreturn]]
 void app::main(int argc, char **argv)
 {
@@ -88,11 +109,29 @@ void app::main(int argc, char **argv)
 
     _program = argv[0];
 
+#ifdef __SWITCH__
+    // init this as soon as possible
+    socketInitializeDefault();
+#ifdef NXLINK_DEBUG
+    nxlinkStdio();
+#endif
+    // and set this just in case
+    atexit(nx_cleanup);
+    // make sure we deinit our shit even when terminate() happens
+    std::set_terminate([](){
+        printf("!!! std::terminate()'d\n");
+        nx_cleanup();
+        std::abort();
+    });
+    // also set basedir right away
+    _base_dir = "/switch/doom64ex/";
+#else
     auto base_dir = SDL_GetBasePath();
     if (base_dir) {
         _base_dir = base_dir;
         SDL_free(base_dir);
     }
+#endif
 
     // Data files have to be in the cwd on Windows for compatibility reasons.
 #ifndef _WIN32

@@ -1,0 +1,417 @@
+#---------------------------------------------------------------------------------
+.SUFFIXES:
+#---------------------------------------------------------------------------------
+
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>/devkitpro")
+endif
+
+TOPDIR ?= $(CURDIR)
+include $(DEVKITPRO)/libnx/switch_rules
+
+#---------------------------------------------------------------------------------
+# this is fucking stupid
+#---------------------------------------------------------------------------------
+%.o: %.cc
+	@echo $(notdir $<)
+	$(CXX) -MMD -MP -MF $(DEPSDIR)/$*.d $(CXXFLAGS) -c $< -o $@ $(ERROR_FILTER)
+
+#---------------------------------------------------------------------------------
+# TARGET is the name of the output
+# BUILD is the directory where object files & intermediate files will be placed
+# SOURCES is a list of directories containing source code
+# DATA is a list of directories containing data files
+# INCLUDES is a list of directories containing header files
+# EXEFS_SRC is the optional input directory containing data copied into exefs, if anything this normally should only contain "main.npdm".
+# ROMFS is the directory containing data to be added to RomFS, relative to the Makefile (Optional)
+#
+# NO_ICON: if set to anything, do not use icon.
+# NO_NACP: if set to anything, no .nacp file is generated.
+# APP_TITLE is the name of the app stored in the .nacp file (Optional)
+# APP_AUTHOR is the author of the app stored in the .nacp file (Optional)
+# APP_VERSION is the version of the app stored in the .nacp file (Optional)
+# APP_TITLEID is the titleID of the app stored in the .nacp file (Optional)
+# ICON is the filename of the icon (.jpg), relative to the project folder.
+#   If not set, it attempts to use one of the following (in this order):
+#     - <Project name>.jpg
+#     - icon.jpg
+#     - <libnx folder>/default_icon.jpg
+#---------------------------------------------------------------------------------
+
+APP_AUTHOR	:=	fgsfds
+APP_VERSION	:=	0.1.0
+APP_TITLE	:=	Doom 64 EX
+
+TARGET		:=	doom64ex
+BUILD		:=	build
+SOURCES		:=
+DATA		:=	data
+INCLUDES	:=	
+DEFINES		+=	-DFLUIDSYNTH_NOT_A_DLL -DNXLINK_DEBUG
+EXEFS_SRC	:=	exefs_src
+#ROMFS	:=	romfs
+
+#---------------------------------------------------------------------------------
+# options for code generation
+#---------------------------------------------------------------------------------
+ARCH	:=	-march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIE -mcpu=cortex-a57+crc+fp+simd
+
+COMMON_CFLAGS	:=	-g -O3 -ffast-math \
+			-fno-unsafe-math-optimizations -fno-strict-aliasing -fomit-frame-pointer \
+			-Wno-sign-compare -Wno-switch -Wno-format-security \
+			$(ARCH) $(DEFINES)
+
+COMMON_CFLAGS	+=	$(INCLUDE) -D__SWITCH__
+
+COMMON_CFLAGS	+=\
+	-I$(DEVKITPRO)/portlibs/switch/include/SDL2 \
+	-I$(TOPDIR)/fluidsynth/include \
+	-iquote $(TOPDIR)/fluidsynth/src \
+	-iquote $(TOPDIR)/fluidsynth/src/utils \
+	-iquote $(TOPDIR)/fluidsynth/src/synth \
+	-iquote $(TOPDIR)/fluidsynth/src/sfloader \
+	-iquote $(TOPDIR)/fluidsynth/src/rvoice \
+	-iquote $(TOPDIR)/fluidsynth/src/midi \
+	-I$(TOPDIR)/include \
+	-I$(TOPDIR)/src/switch \
+	-I$(TOPDIR)/src/engine \
+	-I$(TOPDIR)/src/engine/automap \
+	-I$(TOPDIR)/src/engine/common \
+	-I$(TOPDIR)/src/engine/console \
+	-I$(TOPDIR)/src/engine/doom_main \
+	-I$(TOPDIR)/src/engine/finale \
+	-I$(TOPDIR)/src/engine/fmt \
+	-I$(TOPDIR)/src/engine/game \
+	-I$(TOPDIR)/src/engine/gfx \
+	-I$(TOPDIR)/src/engine/intermission \
+	-I$(TOPDIR)/src/engine/misc \
+	-I$(TOPDIR)/src/engine/net \
+	-I$(TOPDIR)/src/engine/opengl \
+	-I$(TOPDIR)/src/engine/parser \
+	-I$(TOPDIR)/src/engine/playloop \
+	-I$(TOPDIR)/src/engine/renderer \
+	-I$(TOPDIR)/src/engine/sound \
+	-I$(TOPDIR)/src/engine/statusbar \
+	-I$(TOPDIR)/src/engine/system \
+	-I$(TOPDIR)/src/engine/wadgen \
+	-I$(TOPDIR)/src/engine/zone
+
+CFLAGS	:= $(COMMON_CFLAGS) -std=gnu11
+CXXFLAGS	:= $(COMMON_CFLAGS) -fexceptions -frtti -std=gnu++14
+
+ASFLAGS	:=	-g $(ARCH)
+LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+
+LIBS	:=	-lSDL2_net -lSDL2 -lEGL -lglapi -ldrm_nouveau -lpng -lz -lnx -lm
+
+#---------------------------------------------------------------------------------
+# source files
+#---------------------------------------------------------------------------------
+
+SRC_FLUIDSYNTH	:=\
+	fluidsynth/src/utils/fluid_conv.c \
+	fluidsynth/src/utils/fluid_hash.c \
+	fluidsynth/src/utils/fluid_list.c \
+	fluidsynth/src/utils/fluid_ringbuffer.c \
+	fluidsynth/src/utils/fluid_settings.c \
+	fluidsynth/src/utils/fluid_sys.c \
+	fluidsynth/src/sfloader/fluid_defsfont.c \
+	fluidsynth/src/sfloader/fluid_ramsfont.c \
+	fluidsynth/src/rvoice/fluid_adsr_env.c \
+	fluidsynth/src/rvoice/fluid_chorus.c \
+	fluidsynth/src/rvoice/fluid_iir_filter.c \
+	fluidsynth/src/rvoice/fluid_lfo.c \
+	fluidsynth/src/rvoice/fluid_rvoice.c \
+	fluidsynth/src/rvoice/fluid_rvoice_dsp.c \
+	fluidsynth/src/rvoice/fluid_rvoice_event.c \
+	fluidsynth/src/rvoice/fluid_rvoice_mixer.c \
+	fluidsynth/src/rvoice/fluid_rev.c \
+	fluidsynth/src/synth/fluid_chan.c \
+	fluidsynth/src/synth/fluid_event.c \
+	fluidsynth/src/synth/fluid_gen.c \
+	fluidsynth/src/synth/fluid_mod.c \
+	fluidsynth/src/synth/fluid_synth.c \
+	fluidsynth/src/synth/fluid_tuning.c \
+	fluidsynth/src/synth/fluid_voice.c \
+	fluidsynth/src/midi/fluid_midi.c \
+	fluidsynth/src/midi/fluid_midi_router.c \
+	fluidsynth/src/midi/fluid_seqbind.c \
+	fluidsynth/src/midi/fluid_seq.c
+
+SRC_WADGEN	:=\
+	src/engine/wadgen/deflate-N64.cc \
+	src/engine/wadgen/gfx.cc \
+	src/engine/wadgen/level.cc \
+	src/engine/wadgen/png.cc \
+	src/engine/wadgen/rom.cc \
+	src/engine/wadgen/sndfont.cc \
+	src/engine/wadgen/sound.cc \
+	src/engine/wadgen/sprite.cc \
+	src/engine/wadgen/texture.cc \
+	src/engine/wadgen/wad.cc \
+	src/engine/wadgen/wadgen.cc
+
+SRC_PLATFORM	:=\
+	src/engine/system/i_cpu_posix.cc \
+	src/engine/native_ui/SwitchUI.cc
+
+SRC_ENGINE	:=\
+	src/engine/App.cc \
+	src/engine/Globals.cc \
+	\
+	src/engine/automap/am_draw.cc \
+	src/engine/automap/am_map.cc \
+	\
+	src/engine/common/info.cc \
+	src/engine/common/md5.cc \
+	src/engine/common/tables.cc \
+	src/engine/common/Property.cc \
+	\
+	src/engine/console/con_console.cc \
+	\
+	src/engine/doom_main/d_devstat.cc \
+	src/engine/doom_main/d_main.cc \
+	src/engine/doom_main/d_net.cc \
+	\
+	src/engine/finale/f_finale.cc \
+	src/engine/finale/in_stuff.cc \
+	\
+	src/engine/fmt/format.cc \
+	src/engine/fmt/ostream.cc \
+	\
+	src/engine/game/g_actions.cc \
+	src/engine/game/g_demo.cc \
+	src/engine/game/g_game.cc \
+	src/engine/game/g_settings.cc \
+	\
+	src/engine/gfx/Image.cc \
+	src/engine/gfx/PngImage.cc \
+	src/engine/gfx/DoomImage.cc \
+	src/engine/gfx/Pixel.cc \
+	\
+	src/engine/intermission/wi_stuff.cc \
+	\
+	src/engine/misc/m_cheat.cc \
+	src/engine/misc/m_fixed.cc \
+	src/engine/misc/m_keys.cc \
+	src/engine/misc/m_menu.cc \
+	src/engine/misc/m_misc.cc \
+	src/engine/misc/m_password.cc \
+	src/engine/misc/m_random.cc \
+	src/engine/misc/m_shift.cc \
+	\
+	src/engine/net/net_client.cc \
+	src/engine/net/net_common.cc \
+	src/engine/net/net_dedicated.cc \
+	src/engine/net/net_io.cc \
+	src/engine/net/net_loop.cc \
+	src/engine/net/net_packet.cc \
+	src/engine/net/net_query.cc \
+	src/engine/net/net_sdl.cc \
+	src/engine/net/net_server.cc \
+	src/engine/net/net_structrw.cc \
+	\
+	src/engine/opengl/dgl.cc \
+	src/engine/opengl/gl_draw.cc \
+	src/engine/opengl/gl_main.cc \
+	src/engine/opengl/gl_texture.cc \
+	src/engine/opengl/glad.cc \
+	\
+	src/engine/parser/sc_main.cc \
+	\
+	src/engine/playloop/p_ceilng.cc \
+	src/engine/playloop/p_doors.cc \
+	src/engine/playloop/p_enemy.cc \
+	src/engine/playloop/p_floor.cc \
+	src/engine/playloop/p_inter.cc \
+	src/engine/playloop/p_lights.cc \
+	src/engine/playloop/p_macros.cc \
+	src/engine/playloop/p_map.cc \
+	src/engine/playloop/p_maputl.cc \
+	src/engine/playloop/p_mobj.cc \
+	src/engine/playloop/p_plats.cc \
+	src/engine/playloop/p_pspr.cc \
+	src/engine/playloop/p_saveg.cc \
+	src/engine/playloop/p_setup.cc \
+	src/engine/playloop/p_sight.cc \
+	src/engine/playloop/p_spec.cc \
+	src/engine/playloop/p_switch.cc \
+	src/engine/playloop/p_telept.cc \
+	src/engine/playloop/p_tick.cc \
+	src/engine/playloop/p_user.cc \
+	src/engine/playloop/Map.cc \
+	\
+	src/engine/renderer/r_bsp.cc \
+	src/engine/renderer/r_clipper.cc \
+	src/engine/renderer/r_drawlist.cc \
+	src/engine/renderer/r_lights.cc \
+	src/engine/renderer/r_main.cc \
+	src/engine/renderer/r_scene.cc \
+	src/engine/renderer/r_sky.cc \
+	src/engine/renderer/r_things.cc \
+	src/engine/renderer/r_wipe.cc \
+	\
+	src/engine/sound/s_sound.cc \
+	\
+	src/engine/statusbar/st_stuff.cc \
+	\
+	src/engine/system/i_audio.cc \
+	src/engine/system/i_main.cc \
+	src/engine/system/i_png.cc \
+	src/engine/system/i_system.cc \
+	src/engine/system/i_video.cc \
+	src/engine/system/SdlVideo.cc \
+	\
+	src/engine/wad/CommonWad.cc \
+	src/engine/wad/DoomWad.cc \
+	src/engine/wad/RomWad.cc \
+	src/engine/wad/ZipWad.cc \
+	\
+	src/engine/zone/z_zone.cc
+
+SOURCEFILES_CPP	:=\
+	$(SRC_WADGEN) \
+	$(SRC_PLATFORM) \
+	$(SRC_ENGINE)
+
+SOURCEFILES_C	:=	$(SRC_FLUIDSYNTH)
+
+#---------------------------------------------------------------------------------
+# list of directories containing libraries, this must be the top level containing
+# include and lib
+#---------------------------------------------------------------------------------
+LIBDIRS	:= $(PORTLIBS) $(LIBNX)
+
+
+#---------------------------------------------------------------------------------
+# no real need to edit anything past this point unless you need to add additional
+# rules for different file extensions
+#---------------------------------------------------------------------------------
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+#---------------------------------------------------------------------------------
+
+export OUTPUT	:=	$(CURDIR)/$(TARGET)
+export TOPDIR	:=	$(CURDIR)
+
+export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
+			$(foreach sf,$(SOURCEFILES_CPP),$(CURDIR)/$(dir $(sf))) \
+			$(foreach sf,$(SOURCEFILES_C),$(CURDIR)/$(dir $(sf))) \
+			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+
+export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+
+CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c))) $(foreach f,$(SOURCEFILES_C),$(notdir $(f)))
+CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cc))) $(foreach f,$(SOURCEFILES_CPP),$(notdir $(f)))
+SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+
+#---------------------------------------------------------------------------------
+# use CXX for linking C++ projects, CC for standard C
+#---------------------------------------------------------------------------------
+ifeq ($(strip $(CPPFILES)),)
+#---------------------------------------------------------------------------------
+	export LD	:=	$(CC)
+#---------------------------------------------------------------------------------
+else
+#---------------------------------------------------------------------------------
+	export LD	:=	$(CXX)
+#---------------------------------------------------------------------------------
+endif
+#---------------------------------------------------------------------------------
+
+export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES))
+export OFILES_SRC	:=	$(CPPFILES:.cc=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES 	:=	$(OFILES_BIN) $(OFILES_SRC)
+export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
+
+export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+			-I$(CURDIR)/$(BUILD)
+
+export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+
+export BUILD_EXEFS_SRC := $(TOPDIR)/$(EXEFS_SRC)
+
+ifeq ($(strip $(ICON)),)
+	icons := $(wildcard *.jpg)
+	ifneq (,$(findstring $(TARGET).jpg,$(icons)))
+		export APP_ICON := $(TOPDIR)/$(TARGET).jpg
+	else
+		ifneq (,$(findstring icon.jpg,$(icons)))
+			export APP_ICON := $(TOPDIR)/icon.jpg
+		endif
+	endif
+else
+	export APP_ICON := $(TOPDIR)/$(ICON)
+endif
+
+ifeq ($(strip $(NO_ICON)),)
+	export NROFLAGS += --icon=$(APP_ICON)
+endif
+
+ifeq ($(strip $(NO_NACP)),)
+	export NROFLAGS += --nacp=$(CURDIR)/$(TARGET).nacp
+endif
+
+ifneq ($(APP_TITLEID),)
+	export NACPFLAGS += --titleid=$(APP_TITLEID)
+endif
+
+ifneq ($(ROMFS),)
+	export NROFLAGS += --romfsdir=$(CURDIR)/$(ROMFS)
+endif
+
+.PHONY: $(BUILD) clean all
+
+#---------------------------------------------------------------------------------
+all: $(BUILD)
+
+$(BUILD):
+	@[ -d $@ ] || mkdir -p $@
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile.nx
+
+#---------------------------------------------------------------------------------
+clean:
+	@echo clean ...
+	@rm -fr $(BUILD) $(TARGET).pfs0 $(TARGET).nso $(TARGET).nro $(TARGET).nacp $(TARGET).elf
+
+
+#---------------------------------------------------------------------------------
+else
+.PHONY:	all
+
+DEPENDS	:=	$(OFILES:.o=.d)
+
+#---------------------------------------------------------------------------------
+# main targets
+#---------------------------------------------------------------------------------
+
+all	:	$(OUTPUT).pfs0 $(OUTPUT).nro
+
+$(OUTPUT).pfs0	:	$(OUTPUT).nso
+
+$(OUTPUT).nso	:	$(OUTPUT).elf
+
+ifeq ($(strip $(NO_NACP)),)
+$(OUTPUT).nro	:	$(OUTPUT).elf $(OUTPUT).nacp
+else
+$(OUTPUT).nro	:	$(OUTPUT).elf
+endif
+
+$(OUTPUT).elf	:	$(OFILES)
+
+$(OFILES_SRC)	: $(HFILES_BIN)
+
+#---------------------------------------------------------------------------------
+# you need a rule like this for each extension you use as binary data
+#---------------------------------------------------------------------------------
+%.bin.o	%_bin.h :	%.bin
+#---------------------------------------------------------------------------------
+	@echo $(notdir $<)
+	@$(bin2o)
+
+-include $(DEPENDS)
+
+#---------------------------------------------------------------------------------------
+endif
+#---------------------------------------------------------------------------------------

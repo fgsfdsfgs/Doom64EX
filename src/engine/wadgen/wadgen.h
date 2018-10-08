@@ -93,7 +93,7 @@ cache Png_Create(int width, int height, int numpal, dPalette_t * pal,
 
 #define TOTALSTEPS	3500
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__SWITCH__)
 static inline char *strupr(char *in)
 {
 	unsigned char *ptr = (unsigned char *)in;
