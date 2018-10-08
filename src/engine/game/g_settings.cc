@@ -119,6 +119,7 @@ void G_ExecuteFile(char *name) {
     fseek(fh, 0, SEEK_SET);
     buff = (char*) Z_Malloc(len + 1, PU_STATIC, NULL);
     fread(buff, 1, len, fh);
+    fclose(fh);
     buff[len] = 0;
     G_ExecuteMultipleCommands(buff);
     Z_Free(buff);
