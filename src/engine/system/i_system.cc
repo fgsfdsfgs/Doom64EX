@@ -342,6 +342,11 @@ void I_Quit(void) {
     I_ShutdownSound();
     I_ShutdownVideo();
 
+#ifdef __SWITCH__
+    extern void nx_cleanup(void);
+    nx_cleanup();
+#endif
+
     exit(0);
 }
 

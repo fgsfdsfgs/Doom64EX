@@ -88,7 +88,7 @@ namespace {
 // clean up exactly once, since calling socketExit multiple times can lead
 // to massive fuck ups
 
-static void nx_cleanup(void)
+void nx_cleanup(void)
 {
     static int called = 0;
     if (called) return;
@@ -96,6 +96,7 @@ static void nx_cleanup(void)
 
     if (SDL_WasInit(0)) SDL_Quit();
     socketExit();
+    appletUnlockExit();
 }
 
 #endif
@@ -115,8 +116,6 @@ void app::main(int argc, char **argv)
 #ifdef NXLINK_DEBUG
     nxlinkStdio();
 #endif
-    // and set this just in case
-    atexit(nx_cleanup);
     // make sure we deinit our shit even when terminate() happens
     std::set_terminate([](){
         printf("!!! std::terminate()'d\n");
@@ -125,6 +124,8 @@ void app::main(int argc, char **argv)
     });
     // also set basedir right away
     _base_dir = "/switch/doom64ex/";
+    // we're going to need this to terminate peacefully if user quits via HOME
+    appletLockExit();
 #else
     auto base_dir = SDL_GetBasePath();
     if (base_dir) {
