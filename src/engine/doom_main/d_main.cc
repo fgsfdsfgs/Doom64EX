@@ -258,7 +258,7 @@ int D_MiniLoop(void (*start)(void), void (*stop)(void),
 
 #ifdef __SWITCH__
         if (!appletMainLoop())
-            exit(0); // FIXME: there's probably a better way to do this
+            I_Quit();
 #endif
 
         windowpause = (menuactive ? true : false);
