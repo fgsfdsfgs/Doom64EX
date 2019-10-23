@@ -900,22 +900,10 @@ void ST_Drawer(void) {
             char usestring[16];
             char contextstring[32];
             float x;
-
-#ifdef _USE_XINPUT  // XINPUT
-            if(xgamepad.connected) {
-                M_DrawXInputButton(140, 156, XINPUT_GAMEPAD_A);
-                Draw_Text(213, 214, WHITEALPHA(0xA0), 0.75, false, "Use");
-            }
-            else
-#endif
-            {
-                G_GetActionBindings(usestring, "+use");
-                sprintf(contextstring, "(%s)Use", usestring);
-
-                x = (160 / 0.75f) - ((dstrlen(contextstring) * 8) / 2);
-
-                Draw_Text((int)x, 214, WHITEALPHA(0xA0), 0.75f, false, contextstring);
-            }
+            G_GetActionBindings(usestring, "+use");
+            sprintf(contextstring, "(%s)Use", usestring);
+            x = (160 / 0.75f) - ((dstrlen(contextstring) * 8) / 2);
+            Draw_Text((int)x, 214, WHITEALPHA(0xA0), 0.75f, false, contextstring);
         }
     }
 

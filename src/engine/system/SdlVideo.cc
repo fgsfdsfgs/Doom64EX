@@ -8,11 +8,18 @@
 #include <common/doomstat.h>
 #include <renderer/r_main.h>
 
-#ifdef __SWITCH__
-extern "C" int SDL_SendMouseMotion(SDL_Window *window, Uint32 mouseID, int relative, int x, int y);
-#endif
-
 namespace {
+  constexpr Sint32 s_deadzone = 8000;
+
+  void s_clamp(Sint32& axis)
+  {
+      if (axis < s_deadzone && axis > -s_deadzone) {
+          axis = 0;
+      }
+  }
+
+  SDL_GameController *s_controller {};
+
   // Exclusive fullscreen by default on Windows only.
 #ifdef _WIN32
   constexpr auto fullscreen_default = 0;
@@ -155,6 +162,30 @@ namespace {
              | (state & SDL_BUTTON(SDL_BUTTON_MIDDLE)    ? 2 : 0)
              | (state & SDL_BUTTON(SDL_BUTTON_RIGHT)     ? 4 : 0);
   }
+
+  int translate_controller_(int state) {
+      switch (state) {
+      case SDL_CONTROLLER_BUTTON_A: return GAMEPAD_A;
+      case SDL_CONTROLLER_BUTTON_B: return GAMEPAD_B;
+      case SDL_CONTROLLER_BUTTON_X: return GAMEPAD_X;
+      case SDL_CONTROLLER_BUTTON_Y: return GAMEPAD_Y;
+
+      case SDL_CONTROLLER_BUTTON_BACK: return GAMEPAD_BACK;
+      case SDL_CONTROLLER_BUTTON_GUIDE: return GAMEPAD_GUIDE;
+      case SDL_CONTROLLER_BUTTON_START: return GAMEPAD_START;
+      case SDL_CONTROLLER_BUTTON_LEFTSTICK: return GAMEPAD_LSTICK;
+      case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return GAMEPAD_RSTICK;
+      case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return GAMEPAD_LSHOULDER;
+      case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return GAMEPAD_RSHOULDER;
+
+      case SDL_CONTROLLER_BUTTON_DPAD_UP: return GAMEPAD_DPAD_UP;
+      case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return GAMEPAD_DPAD_DOWN;
+      case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return GAMEPAD_DPAD_LEFT;
+      case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return GAMEPAD_DPAD_RIGHT;
+
+      default: return GAMEPAD_INVALID;
+      }
+  }
 }
 
 // Doom globals
@@ -177,6 +208,11 @@ BoolProperty v_mlook { "v_MLook", "Mouse-look", true };
 BoolProperty v_mlookinvert { "v_MLookInvert", "Invert Y-Axis", false };
 BoolProperty v_yaxismove { "v_YAxisMove", "Move with the mouse", false };
 
+/* Gamepad Input */
+IntProperty i_xinputscheme { "i_xinputscheme", "XInput Scheme", 0 };
+FloatProperty i_rsticksensitivityx { "i_rsticksensitivityx", "Right stick X sensitivity", 2.0f };
+FloatProperty i_rsticksensitivityy { "i_rsticksensitivityy", "Right stick Y sensitivity", 1.5f };
+
 class SdlVideo : public IVideo {
     SDL_Window* sdl_window_ {};
     SDL_GLContext sdl_glcontext_ {};
@@ -185,16 +221,6 @@ class SdlVideo : public IVideo {
     bool has_mouse_ { false };
     Vector<VideoMode> modes_ {};
     int lastmbtn_ {};
-#ifdef __SWITCH__
-    int joy_axis_[16] = { 0 };
-    int joy_axis_prev_[16] = { 0 };
-    int joy_mouse_[2] = { 0 };
-    int joy_mouse_prev_[2] = { 0 };
-    int joy_move_[2] = { 0 };
-    int joy_move_prev_[2] = { 0 };
-    int joy_buttons_[32] = { 0 };
-    int joy_buttons_prev_[32] =  { 0 };
-#endif
 
     void init_gl_() {
         switch (opengl_) {
@@ -274,101 +300,6 @@ class SdlVideo : public IVideo {
         return static_cast<int>(pow(static_cast<float>(val), factor));
     }
 
-#ifdef __SWITCH__
-
-    SDL_Keycode joy_to_key_(int button) {
-        static const SDL_Keycode keymap[] = {
-            /* KEY_A      */ KEY_ENTER,
-            /* KEY_B      */ KEY_BACKSPACE,
-            /* KEY_X      */ KEY_DEL,
-            /* KEY_Y      */ KEY_ALT,
-            /* KEY_LSTICK */ 0,
-            /* KEY_RSTICK */ 0,
-            /* KEY_L      */ KEY_SHIFT,
-            /* KEY_R      */ KEY_INSERT,
-            /* KEY_ZL     */ KEY_SPACEBAR,
-            /* KEY_ZR     */ KEY_CTRL,
-            /* KEY_PLUS   */ KEY_ESCAPE,
-            /* KEY_MINUS  */ KEY_TAB,
-            /* KEY_DLEFT  */ KEY_LEFTARROW,
-            /* KEY_DUP    */ KEY_UPARROW,
-            /* KEY_DRIGHT */ KEY_RIGHTARROW,
-            /* KEY_DDOWN  */ KEY_DOWNARROW,
-        };
-
-        if (button < 0 || button > 15) return 0;
-        return keymap[button];
-    }
-
-    bool joy_generate_motion_events_(int axis, int val, int old) {
-        constexpr int move_threshold = 64;
-        static const struct {
-            SDL_Keycode sym;
-            SDL_Scancode scan;
-        } axis_map[][2] = {
-            { { SDLK_a, SDL_SCANCODE_A }, { SDLK_d, SDL_SCANCODE_D }, },
-            { { SDLK_w, SDL_SCANCODE_W }, { SDLK_s, SDL_SCANCODE_S }, },
-        };
-
-        bool key[2] = { val < -move_threshold, val > move_threshold };
-        bool key_prev[2] = { old < -move_threshold, old > move_threshold };
-
-        bool ret = false;
-        event_t doom;
-
-        for (int i = 0; i < 2; ++i) {
-            if (key[i] != key_prev[i]) {
-                doom.type = key[i] ? ev_keydown : ev_keyup;
-                doom.data1 = translate_sdlk_(axis_map[axis][i].sym);
-                doom.data2 = translate_scancode_(axis_map[axis][i].scan);
-                D_PostEvent(&doom);
-                ret = true;
-            }
-        }
-
-        return ret;
-    }
-
-    void joy_move_mouse_(void) {
-        SDL_SendMouseMotion(sdl_window_, 0, 1, joy_mouse_[0], joy_mouse_[1]);
-    }
-
-    void joy_axis_motion_(Uint8 axis, Sint16 val) {
-        constexpr float mouse_modifier = 1.f / 1024.f;
-        constexpr int move_modifier = 256;
-        constexpr int deadzone = 32;
-
-        if (abs(val) < deadzone) val = 0;
-
-        if (axis == 2 || axis == 3) {
-            joy_mouse_prev_[axis - 2] = joy_mouse_[axis - 2];
-            joy_mouse_[axis - 2] = val * mouse_modifier;
-        } else if (axis == 0 || axis == 1) {
-            joy_move_prev_[axis] = joy_move_[axis];
-            joy_move_[axis] = val / move_modifier;
-        }
-
-        joy_axis_prev_[axis] = joy_axis_[axis];
-        joy_axis_[axis] = val;
-    }
-
-    void joy_button_(int button, bool pressed) {
-        joy_buttons_prev_[button] = joy_buttons_[button];
-        joy_buttons_[button] = pressed;
-        if (joy_buttons_[button] == joy_buttons_prev_[button])
-            return;
-
-        event_t doom;
-        int key = joy_to_key_(button);
-        if (!key) return;
-        doom.type = pressed ? ev_keydown : ev_keyup;
-        doom.data1 = key;
-        doom.data2 = key;
-        D_PostEvent(&doom);
-    }
-
-#endif
-
 public:
     SdlVideo(OpenGLVer opengl):
         opengl_(opengl)
@@ -376,11 +307,6 @@ public:
         SDL_Init(SDL_INIT_EVERYTHING);
         SDL_ShowCursor(SDL_FALSE);
         init_modes_();
-
-#ifdef __SWITCH__
-        SDL_JoystickOpen(0);
-        SDL_JoystickOpen(1);
-#endif
 
         SDL_DisplayMode desktop_mode;
         SDL_GetDesktopDisplayMode(0, &desktop_mode);
@@ -556,6 +482,11 @@ public:
         }
     }
 
+    bool have_controller() override
+    {
+        return s_controller;
+    }
+
     void poll_events() override
     {
         event_t doom {};
@@ -613,16 +544,29 @@ public:
                 D_PostEvent(&doom);
                 break;
 
+            case SDL_CONTROLLERDEVICEADDED:
+#ifdef __SWITCH__ // select the first controller instead of last, we got 8 of them at all times
+                if (!s_controller) {
+#endif
+                println("SDL: Controller added: {}", SDL_GameControllerNameForIndex(e.cdevice.which));
+                s_controller = SDL_GameControllerOpen(e.cdevice.which);
+                assert(s_controller);
 #ifdef __SWITCH__
-            case SDL_JOYBUTTONUP:
-            case SDL_JOYBUTTONDOWN:
-                joy_button_(e.jbutton.button, (e.type == SDL_JOYBUTTONDOWN));
+                }
+#endif
                 break;
 
-            case SDL_JOYAXISMOTION:
-                joy_axis_motion_(e.jaxis.axis, e.jaxis.value);
+            case SDL_CONTROLLERDEVICEREMOVED:
+                println("SDL: Controller removed");
+                s_controller = nullptr;
                 break;
-#endif
+
+            case SDL_CONTROLLERBUTTONDOWN:
+            case SDL_CONTROLLERBUTTONUP:
+                doom.type = (e.type == SDL_CONTROLLERBUTTONDOWN) ? ev_keydown : ev_keyup;
+                doom.data1 = translate_controller_(e.cbutton.button);
+                D_PostEvent(&doom);
+                break;
 
             case SDL_WINDOWEVENT:
                 switch (e.window.event) {
@@ -656,15 +600,65 @@ public:
             }
         }
 
-#ifdef __SWITCH__
-        joy_move_mouse_();
-        if (joy_generate_motion_events_(0, joy_move_[0], joy_move_prev_[0]))
-            joy_move_prev_[0] = joy_move_[0];
-        if (joy_generate_motion_events_(1, joy_move_[1], joy_move_prev_[1]))
-            joy_move_prev_[1] = joy_move_[1];
-#endif
-
         int x, y;
+
+        if (s_controller) {
+            event_t ev {};
+
+            x = SDL_GameControllerGetAxis(s_controller, SDL_CONTROLLER_AXIS_LEFTX);
+            y = SDL_GameControllerGetAxis(s_controller, SDL_CONTROLLER_AXIS_LEFTY);
+
+            s_clamp(x);
+            s_clamp(y);
+
+            ev.type = ev_gamepad;
+            ev.data1 = x;
+            ev.data2 = -y;
+            ev.data3 = GAMEPAD_LEFT_STICK;
+            D_PostEvent(&ev);
+
+            x = SDL_GameControllerGetAxis(s_controller, SDL_CONTROLLER_AXIS_RIGHTX);
+            y = SDL_GameControllerGetAxis(s_controller, SDL_CONTROLLER_AXIS_RIGHTY);
+
+            s_clamp(x);
+            s_clamp(y);
+
+            ev.type = ev_gamepad;
+            ev.data1 = x;
+            ev.data2 = -y;
+            ev.data3 = GAMEPAD_RIGHT_STICK;
+            D_PostEvent(&ev);
+
+            static bool old_ltrigger = false;
+            static bool old_rtrigger = false;
+
+            auto z = SDL_GameControllerGetAxis(s_controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+            if (z >= 0x4000 && !old_ltrigger) {
+                old_ltrigger = true;
+                ev.type = ev_keydown;
+                ev.data1 = GAMEPAD_LTRIGGER;
+                D_PostEvent(&ev);
+            } else if (z < 0x4000 && old_ltrigger) {
+                old_ltrigger = false;
+                ev.type = ev_keyup;
+                ev.data1 = GAMEPAD_LTRIGGER;
+                D_PostEvent(&ev);
+            }
+
+            z = SDL_GameControllerGetAxis(s_controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+            if (z >= 0x4000 && !old_rtrigger) {
+                old_rtrigger = true;
+                ev.type = ev_keydown;
+                ev.data1 = GAMEPAD_RTRIGGER;
+                D_PostEvent(&ev);
+            } else if (z < 0x4000 && old_rtrigger) {
+                old_rtrigger = false;
+                ev.type = ev_keyup;
+                ev.data1 = GAMEPAD_RTRIGGER;
+                D_PostEvent(&ev);
+            }
+        }
+
         SDL_GetRelativeMouseState(&x, &y);
         auto btn = SDL_GetMouseState(&mouse_x, &mouse_y);
         if (x != 0 || y != 0 || btn || (lastmbtn_ != btn)) {
